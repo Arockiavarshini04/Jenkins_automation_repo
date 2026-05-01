@@ -1,0 +1,106 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_IMAGE = ''
+        INFERENCE_OUTPUT = ''
+        WRAPPER_OUTPUT = ''
+        COMPARISON_OUTPUT = ''
+    }
+    
+    
+    stages {
+        stage('Stage 1: Setup Container & Run Repo') {
+            steps {
+                script {
+                    // Create and run Docker container
+                    docker.image("${DOCKER_IMAGE}").inside('-v $PWD:/workspace') {
+                        sh '''
+                            cd /workspace
+                            # Your repo setup commands
+                            git clone https://your-repo-url.git || true
+                            cd your-repo
+                            # Run your initial scripts
+                            python setup.py install || pip install -r requirements.txt
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Stage 2: Run Inference') {
+            steps {
+                script {
+                    docker.image("${DOCKER_IMAGE}").inside('-v $PWD:/workspace') {
+                        sh '''
+                            mkdir -p ${INFERENCE_OUTPUT}
+                            # Run your inference script
+                            python inference.py --output ${INFERENCE_OUTPUT}
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Stage 3: Wrapper Script 1 - Process Images') {
+            steps {
+                script {
+                    docker.image("${DOCKER_IMAGE}").inside('-v $PWD:/workspace') {
+                        sh '''
+                            mkdir -p ${WRAPPER_OUTPUT}
+                            # Run wrapper script on inference outputs
+                            python wrapper_script1.py \
+                                --input ${INFERENCE_OUTPUT} \
+                                --output ${WRAPPER_OUTPUT}
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Stage 4: Wrapper Script 2 - JSON Comparison') {
+            steps {
+                script {
+                    docker.image("${DOCKER_IMAGE}").inside('-v $PWD:/workspace') {
+                        sh '''
+                            mkdir -p ${COMPARISON_OUTPUT}
+                            # Run comparison wrapper
+                            python wrapper_script2.py \
+                                --json1 ${WRAPPER_OUTPUT}/result.json \
+                                --json2 reference.json \
+                                --output ${COMPARISON_OUTPUT}
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Stage 5: Cleanup') {
+            steps {
+                script {
+                    sh '''
+                        # Clean up outputs if needed
+                        # docker system prune -f  # Uncomment to clean Docker resources
+                        echo "Cleanup completed"
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Archive important outputs
+            archiveArtifacts artifacts: 'outputs/**/*', allowEmptyArchive: true
+            
+            // Clean workspace after build
+            cleanWs()
+        }
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed!'
+        }
+    }
+}
